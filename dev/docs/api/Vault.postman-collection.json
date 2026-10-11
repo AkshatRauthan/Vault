@@ -1,0 +1,547 @@
+{
+    "info": {
+        "_postman_id": "4900d4c8-ea75-4ed5-a2d7-6eea5be5c182",
+        "name": "Vault@local",
+        "description": "Vault backend. Select the **Vault@local** environment first. Cookies are handled by Postman's cookie jar; the collection scripts keep `csrfToken`, `userId` and `sessionRef` up to date. Full docs: docs/api/README.md",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "// Warn early when a state-changing request has no CSRF token.",
+                    "// The token is needed on every POST/PATCH/DELETE once a session cookie exists.",
+                    "const unsafe = ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(pm.request.method) !== -1;",
+                    "if (unsafe && !pm.environment.get('csrfToken')) {",
+                    "    console.warn('csrfToken is empty. Run Register or Login first.');",
+                    "}"
+                ]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "// Runs after every request: store the CSRF token and user ID from the response.",
+                    "// Postman's cookie jar saves the Set-Cookie session cookie and sends it automatically.",
+                    "let body = null;",
+                    "try { body = pm.response.json(); } catch (e) { body = null; }",
+                    "",
+                    "if (body && body.csrfToken) {",
+                    "    pm.environment.set('csrfToken', body.csrfToken);",
+                    "}",
+                    "if (body && body.user && body.user.userId) {",
+                    "    pm.environment.set('userId', body.user.userId);",
+                    "}"
+                ]
+            }
+        }
+    ],
+    "item": [
+        {
+            "name": "Health",
+            "item": [
+                {
+                    "name": "Health Check",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/health",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "health"]
+                        },
+                        "description": "Public. Stays 200 even while Redis is down; session routes return 503 in that case."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Auth",
+            "item": [
+                {
+                    "name": "Register",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/register",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "register"]
+                        },
+                        "description": "Creates the account and logs in with a **short (1 day)** session.\n\n- Auth: none (the CSRF header is only checked if a session cookie already exists)\n- 201 `{ user, csrfToken }`, session cookie set\n- 400 validation, 409 `Email already registered` / `Tag already taken`\n\nRunning it twice returns 409, since the data is fixed.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test User\",\n  \"tag\": \"test_user\",\n  \"email\": \"test.user@example.com\",\n  \"password\": \"Test@1234\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Login (tag)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/login",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "login"]
+                        },
+                        "description": "Login with the user tag. Short (1 day) session.\n\n- 200 `{ user, csrfToken }`, session cookie set\n- 401 `Invalid credentials`",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"identifier\": \"test_user\",\n  \"password\": \"Test@1234\",\n  \"remember\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Login (email)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/login",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "login"]
+                        },
+                        "description": "Login with the email. Same endpoint: an identifier containing `@` is treated as an email.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"identifier\": \"test.user@example.com\",\n  \"password\": \"Test@1234\",\n  \"remember\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Login (remember me)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/login",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "login"]
+                        },
+                        "description": "`remember: true` creates a **long (28 days)** session.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"identifier\": \"test_user\",\n  \"password\": \"Test@1234\",\n  \"remember\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Me",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/me",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "me"]
+                        },
+                        "description": "Current user plus a fresh CSRF token. Call it after a page reload.\n\n- Auth: session cookie\n- 200 `{ user, csrfToken }`\n- 401 `Authentication required`"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Reauth",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/reauth",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "reauth"]
+                        },
+                        "description": "Step-up: confirms the password, rotates the session ID, clears the suspicious flag.\n\n- Auth: session cookie + `X-CSRF-Token`\n- 200 `{ csrfToken }`, new session cookie\n- 401 `Incorrect password`",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"password\": \"Test@1234\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Change Password",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/change-password",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "change-password"]
+                        },
+                        "description": "Changes the password, destroys all OTHER sessions and rotates the current one.\n\n- Auth: session cookie + `X-CSRF-Token`\n- 200 `{ csrfToken }`\n- 400 weak/identical password, 401 `Incorrect password`\n\nAfter this the password is `Vault@5678`. Run **Change Password (revert)** to restore it.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"currentPassword\": \"Test@1234\",\n  \"newPassword\": \"Vault@5678\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Change Password (revert)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/change-password",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "change-password"]
+                        },
+                        "description": "Puts the password back to `Test@1234` after **Change Password**.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"currentPassword\": \"Vault@5678\",\n  \"newPassword\": \"Test@1234\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Sessions",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/sessions",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "sessions"]
+                        },
+                        "description": "Active sessions of the current user. Raw session IDs are never returned, only an opaque `ref`.\n\n- Auth: session cookie\n- 200 `{ sessions: [{ ref, createdAt, expiresAt, remember, ip, userAgent, suspicious, current }] }`\n\nThe post-response script saves the current session's `ref` into `sessionRef`."
+                    },
+                    "response": [],
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "// Save the current session's ref so Revoke Session can use it.",
+                                    "const body = pm.response.json();",
+                                    "if (body.sessions && body.sessions.length) {",
+                                    "    const current = body.sessions.filter(function (s) { return s.current; })[0] || body.sessions[0];",
+                                    "    pm.environment.set('sessionRef', current.ref);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Revoke Session",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/sessions/{{sessionRef}}",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "sessions", "{{sessionRef}}"]
+                        },
+                        "description": "Revokes one of your own sessions by `ref` (run **List Sessions** first).\n\n- Auth: session cookie + `X-CSRF-Token`\n- 204, 404 `Session not found`\n\nPostman keeps a single cookie per host, so `sessionRef` is the CURRENT session: this logs you out. Log in again before running anything else."
+                    },
+                    "response": [],
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "if (pm.response.code === 204) {",
+                                    "    // The session is gone: forget everything derived from it.",
+                                    "    pm.environment.set('csrfToken', '');",
+                                    "    pm.environment.set('sessionRef', '');",
+                                    "    pm.environment.set('userId', '');",
+                                    "    // The server already expires the cookie via Set-Cookie; this also wipes any leftovers for this host.",
+                                    "    pm.cookies.jar().clear(pm.request.url, function (error) {",
+                                    "        if (error) { console.warn('Could not clear cookie jar:', error); }",
+                                    "    });",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Logout All",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/logout-all",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "logout-all"]
+                        },
+                        "description": "Destroys every session of the user, including the current one.\n\n- Auth: session cookie + `X-CSRF-Token`\n- 204"
+                    },
+                    "response": [],
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "// The session is gone: forget everything derived from it.",
+                                    "pm.environment.set('csrfToken', '');",
+                                    "pm.environment.set('sessionRef', '');",
+                                    "pm.environment.set('userId', '');",
+                                    "// The server already expires the cookie via Set-Cookie; this also wipes any leftovers for this host.",
+                                    "pm.cookies.jar().clear(pm.request.url, function (error) {",
+                                    "    if (error) { console.warn('Could not clear cookie jar:', error); }",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/auth/logout",
+                            "host": ["{{apiBase}}"],
+                            "path": ["auth", "logout"]
+                        },
+                        "description": "Destroys the current session and clears the cookie. Idempotent: 204 with or without a session."
+                    },
+                    "response": [],
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "// The session is gone: forget everything derived from it.",
+                                    "pm.environment.set('csrfToken', '');",
+                                    "pm.environment.set('sessionRef', '');",
+                                    "pm.environment.set('userId', '');",
+                                    "// The server already expires the cookie via Set-Cookie; this also wipes any leftovers for this host.",
+                                    "pm.cookies.jar().clear(pm.request.url, function (error) {",
+                                    "    if (error) { console.warn('Could not clear cookie jar:', error); }",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Users",
+            "item": [
+                {
+                    "name": "Tag Availability (taken)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{apiBase}}/users/tag-availability?tag=test_user",
+                            "host": ["{{apiBase}}"],
+                            "path": ["users", "tag-availability"],
+                            "query": [
+                                {
+                                    "key": "tag",
+                                    "value": "test_user"
+                                }
+                            ]
+                        },
+                        "description": "Public. `available: false` once `test_user` is registered.\n\n- 200 `{ available }`\n- 400 invalid format or reserved tag"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Tag Availability (free)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{apiBase}}/users/tag-availability?tag=free_tag_01",
+                            "host": ["{{apiBase}}"],
+                            "path": ["users", "tag-availability"],
+                            "query": [
+                                {
+                                    "key": "tag",
+                                    "value": "free_tag_01"
+                                }
+                            ]
+                        },
+                        "description": "Public. A tag nobody has taken."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Tag Availability (reserved)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{apiBase}}/users/tag-availability?tag=admin",
+                            "host": ["{{apiBase}}"],
+                            "path": ["users", "tag-availability"],
+                            "query": [
+                                {
+                                    "key": "tag",
+                                    "value": "admin"
+                                }
+                            ]
+                        },
+                        "description": "Public. Reserved tags are rejected with 400 `This tag is reserved`."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Me",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{apiBase}}/users/me",
+                            "host": ["{{apiBase}}"],
+                            "path": ["users", "me"]
+                        },
+                        "description": "Updates the display name. The tag is immutable and the email can't be changed yet.\n\n- Auth: session cookie + `X-CSRF-Token`\n- 200 `{ user }`\n- 400 invalid name, 401 `Authentication required`",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test User Updated\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        }
+    ]
+}

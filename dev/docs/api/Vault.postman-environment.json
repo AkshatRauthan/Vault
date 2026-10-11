@@ -1,0 +1,37 @@
+{
+    "id": "03019455-e477-4f96-8570-3bfdff7b66bb",
+    "name": "Vault@local",
+    "values": [
+        {
+            "key": "baseUrl",
+            "value": "http://127.0.0.1:3300",
+            "type": "default",
+            "enabled": true
+        },
+        {
+            "key": "apiBase",
+            "value": "http://127.0.0.1:3300/api/v1",
+            "type": "default",
+            "enabled": true
+        },
+        {
+            "key": "csrfToken",
+            "value": "",
+            "type": "default",
+            "enabled": true
+        },
+        {
+            "key": "userId",
+            "value": "",
+            "type": "default",
+            "enabled": true
+        },
+        {
+            "key": "sessionRef",
+            "value": "",
+            "type": "default",
+            "enabled": true
+        }
+    ],
+    "_postman_variable_scope": "environment"
+}
