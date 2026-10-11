@@ -1,0 +1,44 @@
+{
+    "compilerOptions": {
+        "target": "ES2021",
+        "module": "node16",
+        "moduleResolution": "node16",
+        "lib": [
+            "ES2021"
+        ],
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "types": [
+            "node"
+        ],
+        "paths": {
+            "@core/*": [
+                "./core/*"
+            ],
+            "@vault/*": [
+                "./src/*"
+            ],
+            "@shared/*": [
+                "./src/shared/*"
+            ],
+            "@shared": [
+                "./src/shared"
+            ]
+        },
+    },
+    "include": [
+        "core/**/*.ts",
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "docs"
+    ]
+}

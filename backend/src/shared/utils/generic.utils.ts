@@ -1,0 +1,1 @@
+export const toSeconds = (ms: number): number => Math.max(1, Math.ceil(ms / 1000));

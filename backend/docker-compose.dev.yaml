@@ -1,0 +1,48 @@
+name: vault
+
+services:
+    # ---------------------------
+    # Redis
+    # ---------------------------
+    redis:
+        image: redis:7-alpine
+        container_name: vault-redis
+        command: >
+            redis-server
+            --maxmemory 512mb
+            --maxmemory-policy noeviction
+            --appendonly yes
+            --appendfsync everysec
+        ports:
+            - "127.0.0.1:6379:6379" # localhost only; Redis has no password in dev
+        volumes:
+            - ./.docker/redis:/data # data lives in the project folder (gitignore .docker/)
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        restart: unless-stopped
+        networks:
+            - vault-net
+
+    # ---------------------------
+    # RedisInsight (Redis UI)
+    # ---------------------------
+    redis-insight:
+        image: redis/redisinsight:latest # pin a version tag once you settle on one
+        container_name: vault-redis-insight
+        ports:
+            - "127.0.0.1:8082:5540" # UI at http://localhost:8082
+        depends_on:
+            redis:
+                condition: service_healthy
+        restart: unless-stopped
+        networks:
+            - vault-net
+        volumes:
+            - ./.docker/redis-insight:/data
+
+networks:
+    vault-net:
+        driver: bridge

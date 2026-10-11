@@ -1,0 +1,6 @@
+packages:
+  - core
+  - src
+allowBuilds:
+  argon2: false
+  esbuild: false
