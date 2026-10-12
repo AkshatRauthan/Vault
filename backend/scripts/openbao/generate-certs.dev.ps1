@@ -1,104 +1,149 @@
+
 $ErrorActionPreference = "Stop"
 
-# Run from the Vault backend project root.
-$PKI = Join-Path (Get-Location) ".docker/openbao/pki"
+# Resolve the backend root relative to this script.
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+$PKI = Join-Path $Root ".docker/openbao/pki"
 
-# Ensure the output directory exists.
+$Files = @(
+    "ca.key",
+    "ca.crt",
+    "server.key",
+    "server.crt"
+)
+
 New-Item -ItemType Directory -Path $PKI -Force | Out-Null
 
-# Check OpenSSL availability.
+# Never overwrite an existing certificate set.
+$Existing = @(
+    $Files | Where-Object {
+        Test-Path (Join-Path $PKI $_)
+    }
+)
+
+$Missing = @(
+    $Files | Where-Object {
+        -not (Test-Path (Join-Path $PKI $_))
+    }
+)
+
+if ($Existing.Count -eq $Files.Count) {
+    Write-Host "Certificates already exist. Nothing changed."
+    exit 0
+}
+
+if ($Existing.Count -gt 0) {
+    throw @"
+Partial certificate set detected.
+Existing: $($Existing -join ', ')
+Missing:  $($Missing -join ', ')
+Nothing was overwritten. Inspect the files before proceeding.
+"@
+}
+
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
     throw "OpenSSL is not installed or is not available in PATH."
 }
 
-# Prevent accidental overwrites of existing certificates and keys.
-$existingFiles = @(
-    "ca.key", "ca.crt", "server.key", "server.crt"
-) | ForEach-Object {
-    Join-Path $PKI $_
-} | Where-Object {
-    Test-Path $_
+# Generate in a temporary directory on the same filesystem.
+$Temp = Join-Path $PKI (
+    ".certgen-" + [guid]::NewGuid().ToString("N")
+)
+
+New-Item -ItemType Directory -Path $Temp | Out-Null
+
+function Invoke-OpenSSL {
+    param([string[]]$Arguments)
+
+    & openssl @Arguments
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "OpenSSL failed with exit code $LASTEXITCODE."
+    }
 }
 
-if ($existingFiles) {
-    throw "Existing certificate files found. Back them up or move them before generating a new CA."
-}
+try {
+    Write-Host "Generating local development CA..."
 
-# Generate local development CA.
-openssl req -x509 -newkey rsa:3072 -sha256 -nodes `
-    -keyout "$PKI/ca.key" `
-    -out "$PKI/ca.crt" `
-    -days 3650 `
-    -subj "/CN=Vault Local Development CA" `
-    -addext "basicConstraints=critical,CA:TRUE" `
-    -addext "keyUsage=critical,keyCertSign,cRLSign"
+    Invoke-OpenSSL @(
+        "req", "-x509", "-newkey", "rsa:3072",
+        "-sha256", "-nodes",
+        "-keyout", "$Temp/ca.key",
+        "-out", "$Temp/ca.crt",
+        "-days", "3650",
+        "-subj", "/CN=Vault Local Development CA",
+        "-addext", "basicConstraints=critical,CA:TRUE",
+        "-addext", "keyUsage=critical,keyCertSign,cRLSign"
+    )
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to generate the development CA."
-}
+    Write-Host "Generating OpenBao server key and CSR..."
 
-# Generate OpenBao server key and CSR.
-openssl req -new -newkey rsa:3072 -sha256 -nodes `
-    -keyout "$PKI/server.key" `
-    -out "$PKI/server.csr" `
-    -subj "/CN=openbao"
+    Invoke-OpenSSL @(
+        "req", "-new", "-newkey", "rsa:3072",
+        "-sha256", "-nodes",
+        "-keyout", "$Temp/server.key",
+        "-out", "$Temp/server.csr",
+        "-subj", "/CN=openbao"
+    )
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to generate the OpenBao server CSR."
-}
-
-# Server certificate extensions.
-@"
+    @"
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 subjectAltName=DNS:openbao,DNS:localhost,IP:127.0.0.1
-"@ | Set-Content -Path "$PKI/server.ext" -Encoding ascii
+"@ | Set-Content -Path "$Temp/server.ext" -Encoding ascii
 
-# Sign server certificate.
-openssl x509 -req -sha256 `
-    -in "$PKI/server.csr" `
-    -CA "$PKI/ca.crt" `
-    -CAkey "$PKI/ca.key" `
-    -CAcreateserial `
-    -out "$PKI/server.crt" `
-    -days 365 `
-    -extfile "$PKI/server.ext"
+    Write-Host "Signing server certificate..."
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to sign the OpenBao server certificate."
+    Invoke-OpenSSL @(
+        "x509", "-req", "-sha256",
+        "-in", "$Temp/server.csr",
+        "-CA", "$Temp/ca.crt",
+        "-CAkey", "$Temp/ca.key",
+        "-CAcreateserial",
+        "-out", "$Temp/server.crt",
+        "-days", "365",
+        "-extfile", "$Temp/server.ext"
+    )
+
+    Write-Host "Verifying certificate chain and hostnames..."
+
+    Invoke-OpenSSL @(
+        "verify", "-CAfile", "$Temp/ca.crt",
+        "-verify_hostname", "openbao", "$Temp/server.crt"
+    )
+
+    Invoke-OpenSSL @(
+        "verify", "-CAfile", "$Temp/ca.crt",
+        "-verify_hostname", "localhost", "$Temp/server.crt"
+    )
+
+    # Remove temporary CSR and extension files.
+    Remove-Item "$Temp/server.csr", "$Temp/server.ext",
+        "$Temp/ca.srl" -Force -ErrorAction SilentlyContinue
+
+    # Recheck before publishing.
+    foreach ($File in $Files) {
+        if (Test-Path (Join-Path $PKI $File)) {
+            throw "File $File appeared during generation. Nothing overwritten."
+        }
+    }
+
+    # Move only verified outputs. Never use -Force here.
+    foreach ($File in $Files) {
+        $Source = Join-Path $Temp $File
+        $Destination = Join-Path $PKI $File
+
+        Move-Item -LiteralPath $Source -Destination $Destination
+    }
+
+    Write-Host "Development certificates generated and verified successfully." `
+        -ForegroundColor Green
+    Write-Host "Location: $PKI"
+    Write-Host "Next: run pnpm openbao:permissions"
 }
-
-# Remove temporary files.
-Remove-Item "$PKI/server.csr", "$PKI/server.ext", "$PKI/ca.srl" `
-    -Force -ErrorAction SilentlyContinue
-
-# Restrict private-key access to the current Windows user.
-# Run this under your normal user account.
-$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-
-foreach ($key in @("$PKI/ca.key", "$PKI/server.key")) {
-    & icacls $key /inheritance:r /grant:r "${identity}:(R,W)" | Out-Null
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to restrict permissions on $key."
+finally {
+    if (Test-Path $Temp) {
+        Remove-Item -LiteralPath $Temp -Recurse -Force
     }
 }
-
-# Verify certificate chain and hostnames.
-openssl verify -CAfile "$PKI/ca.crt" `
-    -verify_hostname openbao "$PKI/server.crt"
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Certificate verification failed for hostname openbao."
-}
-
-openssl verify -CAfile "$PKI/ca.crt" `
-    -verify_hostname localhost "$PKI/server.crt"
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Certificate verification failed for hostname localhost."
-}
-
-Write-Host "`nOpenBao development certificates generated and verified successfully." -ForegroundColor Green
-Write-Host "Certificate directory: $PKI"

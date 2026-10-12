@@ -1,51 +1,121 @@
 
-set -eu
-
-PKI=".docker/openbao/pki"
+#!/usr/bin/env bash
+set -Eeuo pipefail
 umask 077
 
-# Generate local development CA
+# Resolve the backend root regardless of the current directory.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PKI="$ROOT/.docker/openbao/pki"
+
+FILES=(
+    ca.key
+    ca.crt
+    server.key
+    server.crt
+)
+
+mkdir -p "$PKI"
+
+# Never overwrite an existing certificate set.
+existing=()
+missing=()
+
+for file in "${FILES[@]}"; do
+    if [[ -e "$PKI/$file" ]]; then
+        existing+=("$file")
+    else
+        missing+=("$file")
+    fi
+done
+
+if (( ${#existing[@]} == ${#FILES[@]} )); then
+    echo "Certificates already exist. Nothing changed."
+    exit 0
+fi
+
+if (( ${#existing[@]} > 0 )); then
+    echo "ERROR: Partial certificate set detected." >&2
+    echo "Existing files: ${existing[*]}" >&2
+    echo "Missing files:  ${missing[*]}" >&2
+    echo "Refusing to overwrite or regenerate anything." >&2
+    exit 1
+fi
+
+# Ensure OpenSSL is available.
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "ERROR: OpenSSL is not installed or not in PATH." >&2
+    exit 1
+fi
+
+# Generate in a temporary directory. Publish only after verification.
+TMP="$(mktemp -d "$PKI/.certgen.XXXXXX")"
+trap 'rm -rf -- "$TMP"' EXIT
+
+echo "Generating local development CA..."
+
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
-  -keyout "$PKI/ca.key" \
-  -out "$PKI/ca.crt" \
-  -days 3650 \
-  -subj "/CN=Vault Local Development CA" \
-  -addext "basicConstraints=critical,CA:TRUE" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign"
+    -keyout "$TMP/ca.key" \
+    -out "$TMP/ca.crt" \
+    -days 3650 \
+    -subj "/CN=Vault Local Development CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign"
 
-# Generate OpenBao server key and CSR
+echo "Generating OpenBao server key and CSR..."
+
 openssl req -new -newkey rsa:3072 -sha256 -nodes \
-  -keyout "$PKI/server.key" \
-  -out "$PKI/server.csr" \
-  -subj "/CN=openbao"
+    -keyout "$TMP/server.key" \
+    -out "$TMP/server.csr" \
+    -subj "/CN=openbao"
 
-# Server certificate extensions
-cat > "$PKI/server.ext" <<'EOF'
+cat > "$TMP/server.ext" <<'EOF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 subjectAltName=DNS:openbao,DNS:localhost,IP:127.0.0.1
 EOF
 
-# Sign server certificate
+echo "Signing server certificate..."
+
 openssl x509 -req -sha256 \
-  -in "$PKI/server.csr" \
-  -CA "$PKI/ca.crt" \
-  -CAkey "$PKI/ca.key" \
-  -CAcreateserial \
-  -out "$PKI/server.crt" \
-  -days 365 \
-  -extfile "$PKI/server.ext"
+    -in "$TMP/server.csr" \
+    -CA "$TMP/ca.crt" \
+    -CAkey "$TMP/ca.key" \
+    -CAcreateserial \
+    -out "$TMP/server.crt" \
+    -days 365 \
+    -extfile "$TMP/server.ext"
 
-# Remove temporary files
-rm -f "$PKI/server.csr" "$PKI/server.ext" "$PKI/ca.srl"
+echo "Verifying certificate chain and hostnames..."
 
-chmod 600 "$PKI/ca.key" "$PKI/server.key"
-chmod 644 "$PKI/ca.crt" "$PKI/server.crt"
+openssl verify -CAfile "$TMP/ca.crt" \
+    -verify_hostname openbao "$TMP/server.crt"
 
-# Verify certificate chain and hostnames
-openssl verify -CAfile "$PKI/ca.crt" \
-  -verify_hostname openbao "$PKI/server.crt"
+openssl verify -CAfile "$TMP/ca.crt" \
+    -verify_hostname localhost "$TMP/server.crt"
 
-openssl verify -CAfile "$PKI/ca.crt" \
-  -verify_hostname localhost "$PKI/server.crt"
+# Set final permissions before publishing.
+chmod 600 "$TMP/ca.key" "$TMP/server.key"
+chmod 644 "$TMP/ca.crt" "$TMP/server.crt"
+
+# Recheck before publishing; never replace files created meanwhile.
+for file in "${FILES[@]}"; do
+    if [[ -e "$PKI/$file" ]]; then
+        echo "ERROR: $file appeared during generation. Nothing overwritten." >&2
+        exit 1
+    fi
+done
+
+# Move verified files into place.
+for file in "${FILES[@]}"; do
+    mv -n -- "$TMP/$file" "$PKI/$file"
+
+    if [[ -e "$TMP/$file" ]]; then
+        echo "ERROR: Could not publish $file without overwriting." >&2
+        exit 1
+    fi
+done
+
+echo "Development certificates generated and verified successfully."
+echo "Location: $PKI"
+echo "Next: run pnpm openbao:permissions"
