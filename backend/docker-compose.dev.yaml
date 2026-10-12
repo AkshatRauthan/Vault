@@ -43,6 +43,29 @@ services:
         volumes:
             - ./.docker/redis-insight:/data
 
+    # ---------------------------
+    # OpenBao (OpenSource Key Manager)
+    # ---------------------------
+    openbao:
+        image: openbao/openbao:2.7.0
+        container_name: vault-openbao
+        command:
+            - server
+            - -config=/bao/config/openbao.hcl
+        ports:
+            - "127.0.0.1:8200:8200"
+        volumes:
+            - ./.docker/openbao/data:/openbao/data
+            - ./openbao.hcl:/bao/config/openbao.hcl:ro
+            - ./.docker/openbao/pki/ca.crt:/bao/tls/ca.crt:ro
+            - ./.docker/openbao/pki/server.crt:/bao/tls/server.crt:ro
+            - ./.docker/openbao/pki/server.key:/bao/tls/server.key:ro
+        cap_add:
+            - IPC_LOCK
+        restart: unless-stopped
+        networks:
+            - vault-net
+
 networks:
     vault-net:
         driver: bridge
