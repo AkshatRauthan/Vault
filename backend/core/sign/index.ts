@@ -20,3 +20,19 @@ export type {
     IPinnedPlatformKey,
     IProof,
 } from './sign.types';
+
+export type { 
+    ICertificateInput 
+} from './certificate';
+
+export { 
+    buildCertificatePayload, 
+    issueCertificate 
+} from './certificate';
+
+export type { 
+    IProviderKey, 
+    IKeyProvider, 
+    IPlatformKeyRef, 
+    IProviderKeyVersion 
+} from './key-provider';

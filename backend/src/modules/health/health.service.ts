@@ -1,6 +1,7 @@
 import { HealthStatus, IDependencyCheck, IHealthReport } from './health.types';
 
 import { ServerConfig } from '@vault/config';
+import { pingOpenBao } from '@vault/infra/openbao';
 import { getDbStatus, pingDb } from '@vault/infra/db';
 import { getCacheDowntimeMs, getCacheStatus, pingCache } from '@vault/infra/cache';
 
@@ -33,18 +34,36 @@ const runCheck = async (state: string, isUp: boolean, ping: () => Promise<void>)
     }
 };
 
+/**
+ * pingOpenBao never throws and has its own request timeout, so one call tells us whether the
+ * key manager is reachable, initialized and unsealed. The state names say which it is.
+ */
+const checkSigning = async (): Promise<IDependencyCheck> => {
+    const startedAt = performance.now();
+    const status = await pingOpenBao();
+
+    if (status.ready) {
+        return { status: 'up', state: 'ready', latencyMs: Math.round(performance.now() - startedAt) };
+    }
+    if (!status.initialized || status.sealed) {
+        return { status: 'down', state: status.sealed ? 'sealed' : 'uninitialized', reason: 'not_ready' };
+    }
+    return { status: 'down', state: 'unreachable', reason: 'ping_failed' };
+};
+
 export const HealthService = {
     /**
-     * Database down = the API can't work (down). Cache down = routes that use
-     * sessions fail with 503 but the rest still works (degraded).
+     * Database down = the API can't work (down). Cache down = routes that use sessions fail with
+     * 503, signing down = signing fails; in both cases the rest still works (degraded).
      */
     async getReport(): Promise<IHealthReport> {
         const dbState = getDbStatus();
         const cacheState = getCacheStatus();
 
-        const [database, cache] = await Promise.all([
+        const [database, cache, signing] = await Promise.all([
             runCheck(dbState, dbState === 'connected', pingDb),
             runCheck(cacheState, cacheState === 'ready', pingCache),
+            checkSigning()
         ]);
 
         if (cache.status === 'down') {
@@ -61,7 +80,7 @@ export const HealthService = {
             service: ServerConfig.SERVICE_NAME,
             timestamp: new Date().toISOString(),
             uptime: Math.round(process.uptime()),
-            checks: { database, cache },
+            checks: { database, cache, signing },
         };
 
         if (ServerConfig.NODE_ENV !== 'production') {

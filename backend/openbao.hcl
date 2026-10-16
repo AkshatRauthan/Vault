@@ -17,3 +17,9 @@ listener "tcp" {
     tls_key_file    = "/bao/tls/server.key"
     tls_min_version = "tls12"
 }
+
+audit "file" "to-stdout" {
+    options {
+    file_path = "stdout"
+    }
+}

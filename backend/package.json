@@ -12,11 +12,13 @@
         "dev:env:start": "docker compose -f docker-compose.dev.yaml start",
         "dev:env:delete": "docker compose -f docker-compose.dev.yaml down",
         "dev:env:reset": "docker compose -f docker-compose.dev.yaml down && sudo rm -rf .docker/redis .docker/redis-insight",
-        
-        "openbao:certs": "bash scripts/openbao/generate-dev-certs.sh",
-        "openbao:certs:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/generate-dev-certs.ps1",
+
+        "openbao:bootstrap": "tsx scripts/openbao/bootstrap.ts",
+        "openbao:certs": "bash scripts/openbao/generate-certs.dev.sh",
+        "openbao:certs:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/generate-certs.dev.ps1",
         "openbao:permissions": "bash scripts/openbao/fix-permissions.sh",
-        "openbao:permissions:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/fix-permissions.ps1"
+        "openbao:permissions:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/fix-permissions.ps1",
+        "openbao:unseal": "  docker exec -it vault-openbao sh -c 'export BAO_ADDR=https://127.0.0.1:8200 BAO_CACERT=/bao/tls/ca.crt; bao operator unseal'"
     },
     "dependencies": {
         "@types/cors": "^2.8.19",

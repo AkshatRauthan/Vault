@@ -1,6 +1,6 @@
 export type DependencyState = 'up' | 'down';
 
-/** ok = everything up, degraded = database up but cache down, down = database down. */
+/** ok = everything up, degraded = database up but cache or signing down, down = database down. */
 export type HealthStatus = 'ok' | 'degraded' | 'down';
 
 export interface IDependencyCheck {
@@ -24,6 +24,8 @@ export interface IHealthReport {
     checks: {
         database: IDependencyCheck;
         cache: IDependencyCheck;
+        /** The key manager (OpenBao). Down means signing fails; everything else still works. */
+        signing: IDependencyCheck;
     };
     /** Process details. Omitted in production so the public endpoint doesn't fingerprint the server. */
     runtime?: {

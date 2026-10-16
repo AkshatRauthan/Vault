@@ -2,7 +2,7 @@ import { RequestHandler } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { HealthService } from './health.service';
 
-export const HealthController = {
+export const HealthController: Record<string, RequestHandler> = {
     getHealth: (async (_req, res, next) => {
         try {
             const report = await HealthService.getReport();
@@ -12,5 +12,5 @@ export const HealthController = {
         } catch (err) {
             next(err);
         }
-    }) as RequestHandler,
+    }),
 };
