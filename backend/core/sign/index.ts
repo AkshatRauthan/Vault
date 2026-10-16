@@ -1,5 +1,6 @@
 export * from './manifest';
 export * from './proof.chain';
+export * from './verify-candidate';
 
 export {
     CERTIFICATE_PURPOSE,
