@@ -17,3 +17,12 @@ export const OpenBaoConfig = {
     PLATFORM_KEY_NAME: getEnv('OPENBAO_PLATFORM_KEY_NAME', 'platform-certification'),
     TIMEOUT_MS: getPositiveInteger('OPENBAO_TIMEOUT_MS', '5000'),
 };
+
+/** Call in the OpenBao client constructor and in main.ts before listen(). Never from bootstrap. */
+export const requireOpenBaoToken = (): string => {
+    if (!OpenBaoConfig.TOKEN || OpenBaoConfig.TOKEN === 'root-token') {
+        throw new Error('OPENBAO_TOKEN is not set. Run the bootstrap script and set the app token first.');
+    }
+    return OpenBaoConfig.TOKEN;
+};
+ 

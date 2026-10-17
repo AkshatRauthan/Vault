@@ -6,13 +6,11 @@
         "dev": "tsx watch src/index.ts",
         "start": "node dist/src/index.js",
         "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
-        
         "dev:env:up": "mkdir -p .docker/redis .docker/redis-insight && docker compose -f docker-compose.dev.yaml up -d --remove-orphans",
         "dev:env:stop": "docker compose -f docker-compose.dev.yaml stop",
         "dev:env:start": "docker compose -f docker-compose.dev.yaml start",
         "dev:env:delete": "docker compose -f docker-compose.dev.yaml down",
         "dev:env:reset": "docker compose -f docker-compose.dev.yaml down && sudo rm -rf .docker/redis .docker/redis-insight",
-
         "openbao:bootstrap": "tsx scripts/openbao/bootstrap.ts",
         "openbao:certs": "bash scripts/openbao/generate-certs.dev.sh",
         "openbao:certs:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/generate-certs.dev.ps1",
@@ -38,6 +36,7 @@
         "zod": "3.22.4"
     },
     "devDependencies": {
+        "@supabase/supabase-js": "^2.118.0",
         "@types/cookie-parser": "^1.4.8",
         "@types/express": "4.17.21",
         "@types/node": "24.19.2",
