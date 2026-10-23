@@ -1,13 +1,12 @@
-import { hashPageLeaf, textRootFromLeafHashes } from './pdf.text-tree';
 import type { IPageTextResult } from './pdf.types';
+import { hashPageLeaf, textRootFromLeafHashes } from './pdf.text-tree';
 
 /**
- * Compares a candidate's extracted text with the signed text evidence (vault-pdf-text-v1).
- * It answers a different question from the byte comparison: a file can differ in bytes yet have identical
- * text (re-saved, content reordered), and identical text can still hide a changed image or colour, which
- * this evidence cannot see. Only page numbers are known to the verifier, because only leaf hashes are stored.
+ * Compares candidate text evidence with the signed text-evidence root (vault-pdf-text-v1).
+ * The candidate can be supplied as full page records or as leaf hashes emitted by an
+ * IDocumentHandler. Full records are useful to callers that need to compute evidence themselves;
+ * leaf hashes avoid returning extracted text from the handler just for localization.
  */
-
 export interface ITextEvidenceDiff {
     /** The stored leaf hashes rebuild exactly the signed root, with the signed page count. */
     indexTrusted: boolean;
@@ -23,51 +22,70 @@ export interface ITextEvidenceDiff {
     reasons: string[];
 }
 
-export interface ITextEvidenceDiffInput {
+interface ITextEvidenceDiffBase {
     signedRoot: string;
     signedPageCount: number;
     storedLeafHashes: string[];
-    candidatePages: IPageTextResult[];
 }
 
+export type ITextEvidenceDiffInput = ITextEvidenceDiffBase & (
+    | { candidatePages: IPageTextResult[] }
+    | { candidateLeafHashes: string[]; candidatePageCount: number; unextractablePages?: number[] }
+);
+
 export const diffTextEvidence = (input: ITextEvidenceDiffInput): ITextEvidenceDiff => {
-    const { signedRoot, signedPageCount, storedLeafHashes, candidatePages } = input;
+    const candidateLeaves = 'candidatePages' in input
+        ? input.candidatePages.map((page, index) => hashPageLeaf(index, page))
+        : input.candidateLeafHashes;
+    const candidatePageCount = 'candidatePages' in input ? input.candidatePages.length : input.candidatePageCount;
+    // For precomputed evidence, the declared page count must describe the supplied leaves exactly.
+    // Do not trust caller metadata independently from the content-derived hashes.
+    const candidatePageCountConsistent = candidatePageCount === candidateLeaves.length;
+    const unextractablePages = 'candidatePages' in input
+        ? input.candidatePages.filter((page) => page.outcome === 'extraction-error').map((page) => page.page)
+        : (input.unextractablePages ?? []);
+
     const result: ITextEvidenceDiff = {
         indexTrusted: false,
         rootMatches: false,
-        pageCountMatches: candidatePages.length === signedPageCount,
-        originalPageCount: signedPageCount,
-        candidatePageCount: candidatePages.length,
+        pageCountMatches: candidatePageCountConsistent && candidatePageCount === input.signedPageCount,
+        originalPageCount: input.signedPageCount,
+        candidatePageCount,
         differingPages: [],
-        unextractablePages: candidatePages.filter((p) => p.outcome === 'extraction-error').map((p) => p.page),
+        unextractablePages,
         reasons: [],
     };
 
     // Authenticate the stored index against the signed root before using it for localization.
     try {
         result.indexTrusted =
-            storedLeafHashes.length === signedPageCount && textRootFromLeafHashes(storedLeafHashes) === signedRoot;
+            input.storedLeafHashes.length === input.signedPageCount &&
+            textRootFromLeafHashes(input.storedLeafHashes) === input.signedRoot;
     } catch {
         result.indexTrusted = false;
     }
     if (!result.indexTrusted) result.reasons.push('Stored text index does not match the signed text root');
+
+    if (!candidatePageCountConsistent) {
+        result.reasons.push('Candidate page count does not match the number of candidate leaf hashes');
+        return result;
+    }
 
     if (result.unextractablePages.length > 0) {
         result.reasons.push(`Text could not be extracted from page(s) ${result.unextractablePages.join(', ')}`);
         return result;
     }
 
-    const candidateLeaves = candidatePages.map((page, index) => hashPageLeaf(index, page));
     try {
-        result.rootMatches = textRootFromLeafHashes(candidateLeaves) === signedRoot;
+        result.rootMatches = textRootFromLeafHashes(candidateLeaves) === input.signedRoot;
     } catch {
-        result.rootMatches = false; // an empty candidate
+        result.rootMatches = false;
     }
 
     if (result.indexTrusted && !result.rootMatches) {
-        const longest = Math.max(storedLeafHashes.length, candidateLeaves.length);
+        const longest = Math.max(input.storedLeafHashes.length, candidateLeaves.length);
         for (let i = 0; i < longest; i++) {
-            if (storedLeafHashes[i] !== candidateLeaves[i]) result.differingPages.push(i + 1);
+            if (input.storedLeafHashes[i] !== candidateLeaves[i]) result.differingPages.push(i + 1);
         }
     }
     return result;

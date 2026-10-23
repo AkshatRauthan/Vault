@@ -1,4 +1,4 @@
-import { IKeyCertificate, IManifest } from '@core/sign';
+import { IKeyCertificate, ISignedManifest } from '@core/sign';
 
 /** Shape returned by the repository. proofId is the uuidv7 primary key. */
 export interface IProofRecord {
@@ -6,9 +6,11 @@ export interface IProofRecord {
     documentId: string;
     versionId: string;
     manifestCanonical: string;
-    manifest: IManifest;
+    manifest: ISignedManifest;
     signature: string;
     certificate: IKeyCertificate;
+    /** Auxiliary page-leaf index; not trusted until rebuilt against the signed text root. */
+    textLeafHashes?: string[];
     signedAt: Date;
     signedByUserId: string;
     createdAt: Date;
@@ -18,9 +20,10 @@ export interface INewProofInput {
     documentId: string;
     versionId: string;
     manifestCanonical: string;
-    manifest: IManifest;
+    manifest: ISignedManifest;
     signature: string;
     certificate: IKeyCertificate;
+    textLeafHashes?: string[];
     signedByUserId: string;
 }
 

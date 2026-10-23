@@ -14,6 +14,7 @@ const toProofRecord = (doc: ReturnType<typeof ProofModel.prototype.toObject>): I
         manifest: o.manifest,
         signature: o.signature,
         certificate: o.certificate,
+        ...(o.textLeafHashes ? { textLeafHashes: o.textLeafHashes } : {}),
         signedAt: o.createdAt,
         signedByUserId: o.signedByUserId,
         createdAt: o.createdAt,
@@ -56,5 +57,13 @@ export const ProofRepository = {
     async findProofsByDocument(documentId: string): Promise<IProofRecord[]> {
         const docs = await ProofModel.find({ documentId }).sort({ createdAt: -1 }).exec();
         return docs.map((d) => toProofRecord(d.toObject()));
+    },
+
+    async deleteProofByVersion(versionId: string, proofId?: string): Promise<void> {
+        await ProofModel.deleteOne({ versionId, ...(proofId ? { _id: proofId } : {}) }).exec();
+    },
+
+    async deleteSegmentIndexByVersion(versionId: string, proofId?: string): Promise<void> {
+        await SegmentIndexModel.deleteOne({ versionId, ...(proofId ? { proofId } : {}) }).exec();
     },
 };

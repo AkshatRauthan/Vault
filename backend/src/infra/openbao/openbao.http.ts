@@ -64,11 +64,18 @@ export const createOpenBaoHttp = (options: IOpenBaoHttpOptions): IOpenBaoHttp =>
         throw new OpenBaoError('OpenBao address must use https://', null);
     }
 
-    const agent = new https.Agent({
-        ca: readFileSync(options.caCertPath),
-        keepAlive: true,
-        minVersion: 'TLSv1.2',
-    });
+    // Defer reading the CA file until the first request. Otherwise importing the app would
+    // throw synchronously when local certificates have not been generated yet, before startup
+    // can report the dependency failure through its normal error path.
+    let agent: https.Agent | undefined;
+    const getAgent = (): https.Agent => {
+        agent ??= new https.Agent({
+            ca: readFileSync(options.caCertPath),
+            keepAlive: true,
+            minVersion: 'TLSv1.2',
+        });
+        return agent;
+    };
     const timeoutMs = options.timeoutMs ?? 5000;
 
     const request = <T = unknown>(
@@ -95,7 +102,7 @@ export const createOpenBaoHttp = (options: IOpenBaoHttpOptions): IOpenBaoHttp =>
                     path: `/v1/${apiPath}`,
                     method,
                     headers,
-                    agent,
+                    agent: getAgent(),
                 },
                 (res) => {
                     const chunks: Buffer[] = [];
@@ -148,5 +155,5 @@ export const createOpenBaoHttp = (options: IOpenBaoHttpOptions): IOpenBaoHttp =>
             req.end();
         });
 
-    return { request, close: () => agent.destroy() };
+    return { request, close: () => agent?.destroy() };
 };

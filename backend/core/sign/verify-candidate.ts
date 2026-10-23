@@ -37,7 +37,7 @@ export interface IVerificationResult {
 export interface IVerifyInput {
     proof: IProof;
     pinnedKeys: IPinnedPlatformKey[];
-    keyStatus?: 'active' | 'retired' | 'revoked';
+    keyStatus?: 'active' | 'retired' | 'revoked' | 'unknown';
     /** 32 * chunkCount bytes from the segment index record. */
     leaves: Buffer;
     chunkCount: number;
@@ -89,10 +89,16 @@ export const verifyCandidate = async (input: IVerifyInput): Promise<IVerificatio
     // because the manifest's root field comes from that signed manifest.
     if (result.signatureValid) {
         try {
+            const manifest = input.proof.manifest;
+            const metadataMatches =
+                input.fileSize === manifest.file.size &&
+                input.chunkSize === manifest.merkle.chunkSize &&
+                input.chunkCount === manifest.merkle.chunkCount &&
+                input.chunkCount === Math.ceil(input.fileSize / input.chunkSize);
             const rebuilt = computeMerkleRootFromLeaves(input.leaves, input.fileSize, input.chunkSize);
-            result.indexTrusted = rebuilt === input.proof.manifest.merkle.root;
+            result.indexTrusted = metadataMatches && rebuilt === manifest.merkle.root;
             if (!result.indexTrusted) {
-                result.reasons.push('Stored segment index does not match the signed Merkle root');
+                result.reasons.push('Stored segment index or its metadata does not match the signed Merkle root');
             }
         } catch {
             result.indexTrusted = false;

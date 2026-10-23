@@ -73,7 +73,7 @@ export const HealthService = {
 
         let status: HealthStatus = 'ok';
         if (database.status === 'down') status = 'down';
-        else if (cache.status === 'down') status = 'degraded';
+        else if (cache.status === 'down' || signing.status === 'down') status = 'degraded';
 
         const report: IHealthReport = {
             status,

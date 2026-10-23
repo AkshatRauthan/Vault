@@ -10,6 +10,8 @@ interface IProofDoc {
     manifest: unknown;
     signature: string;
     certificate: unknown;
+    /** Auxiliary page-leaf index; verified against the signed textEvidence.root before localization. */
+    textLeafHashes?: string[];
     signedByUserId: string;
     createdAt: Date;
 }
@@ -23,6 +25,7 @@ const proofSchema = new Schema<IProofDoc>(
         manifest: { type: Schema.Types.Mixed, required: true, immutable: true },
         signature: { type: String, required: true, immutable: true },
         certificate: { type: Schema.Types.Mixed, required: true, immutable: true },
+        textLeafHashes: { type: [String], required: false, default: undefined, immutable: true },
         signedByUserId: { type: String, required: true, immutable: true },
     },
     { timestamps: { createdAt: true, updatedAt: false }, versionKey: false, id: false },

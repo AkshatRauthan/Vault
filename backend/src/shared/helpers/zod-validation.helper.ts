@@ -27,7 +27,15 @@ export const validate = (schemas: IValidationSchemas): RequestHandler =>
                     .join('; ');
                 return next(new CustomError(message, StatusCodes.BAD_REQUEST));
             }
-            (req as unknown as Record<string, unknown>)[part] = result.data;
+            // Express exposes some request properties (notably `query`) through prototype getters.
+            // Assigning to those properties may fail in strict mode, so shadow them with a validated
+            // own data property that downstream controllers can read reliably.
+            Object.defineProperty(req, part, {
+                configurable: true,
+                enumerable: true,
+                writable: true,
+                value: result.data,
+            });
         }
         next();
     };

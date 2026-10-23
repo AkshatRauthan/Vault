@@ -23,6 +23,9 @@ export type {
     IManifestInput,
     IPinnedPlatformKey,
     IProof,
+    IPdfTextManifest,
+    IPdfTextManifestInput,
+    ISignedManifest,
 } from './sign.types';
 
 export type {
