@@ -1,8 +1,8 @@
 import { ED25519_PUBLIC_KEY_LENGTH, ED25519_SIGNATURE_LENGTH, verifyEd25519 } from '@core/crypto';
 
 import { certificateSigningBytes, manifestSigningBytes } from './manifest';
-import { ICertificateCheck, IChainVerification, IKeyCertificate, IPinnedPlatformKey, IProof } from './sign.types';
-import { CERTIFICATE_PURPOSE, CERTIFICATE_SCHEMA, MANIFEST_SCHEMA, SIGNING_ALGORITHM, STRICT_PROFILE } from './sign.constants';
+import { ICertificateCheck, IChainVerification, IKeyCertificate, IPinnedPlatformKey, IProof, ISignedManifest } from './sign.types';
+import { CERTIFICATE_PURPOSE, CERTIFICATE_SCHEMA, MANIFEST_SCHEMA, SIGNING_ALGORITHM, STRICT_PROFILE, PDF_TEXT_PROFILE, TEXT_NORMALIZATION_VERSION } from './sign.constants';
 
 /**
  * Strict base64: standard alphabet with canonical padding and an exact decoded length.
@@ -15,6 +15,17 @@ export const decodeBase64Strict = (value: unknown, expectedLength: number): Buff
 };
 
 const invalid = (reason: string): ICertificateCheck => ({ valid: false, reason });
+
+/** Known schema, and a known profile whose profile-specific block is present and recognised. */
+const isSupportedManifest = (manifest: ISignedManifest): boolean => {
+    if (manifest.schema !== MANIFEST_SCHEMA) return false;
+    if (manifest.profile === STRICT_PROFILE) return true;
+    if (manifest.profile === PDF_TEXT_PROFILE) {
+        const text = manifest.textEvidence;
+        return text?.spec === PDF_TEXT_PROFILE && text.normalization === TEXT_NORMALIZATION_VERSION;
+    }
+    return false;
+};
 
 /** Step 1: the certificate must be signed by a pinned platform key. */
 export const verifyCertificate = (
@@ -57,7 +68,7 @@ export const verifyProofChain = (proof: IProof, pinnedKeys: IPinnedPlatformKey[]
     try {
         const { manifest, certificate } = proof;
 
-        if (manifest.schema !== MANIFEST_SCHEMA || manifest.profile !== STRICT_PROFILE) {
+        if (!isSupportedManifest(manifest)) {
             result.reasons.push('Unsupported manifest schema or profile');
             return result;
         }

@@ -16,7 +16,7 @@
         "openbao:certs:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/generate-certs.dev.ps1",
         "openbao:permissions": "bash scripts/openbao/fix-permissions.sh",
         "openbao:permissions:windows": "powershell -ExecutionPolicy Bypass -File scripts/openbao/fix-permissions.ps1",
-        "openbao:unseal": "  docker exec -it vault-openbao sh -c 'export BAO_ADDR=https://127.0.0.1:8200 BAO_CACERT=/bao/tls/ca.crt; bao operator unseal'"
+        "openbao:unseal": "docker exec -it vault-openbao sh -c 'export BAO_ADDR=https://127.0.0.1:8200 BAO_CACERT=/bao/tls/ca.crt; bao operator unseal'"
     },
     "dependencies": {
         "@types/cors": "^2.8.19",
@@ -30,6 +30,8 @@
         "http-status-codes": "^2.3.0",
         "ioredis": "5.3.2",
         "mongoose": "^8.9.0",
+        "pdf-lib": "^1.17.1",
+        "pdfjs-dist": "^6.4.299",
         "ua-parser-js": "^2.0.10",
         "uuidv7": "^1.2.1",
         "winston": "^3.19.0",

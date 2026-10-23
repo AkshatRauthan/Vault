@@ -19,7 +19,7 @@ export const OpenBaoConfig = {
 };
 
 /** Call in the OpenBao client constructor and in main.ts before listen(). Never from bootstrap. */
-export const requireOpenBaoToken = (): string => {
+export const requireOpenBaoToken = async (): Promise<string> => {
     if (!OpenBaoConfig.TOKEN || OpenBaoConfig.TOKEN === 'root-token') {
         throw new Error('OPENBAO_TOKEN is not set. Run the bootstrap script and set the app token first.');
     }

@@ -6,6 +6,10 @@ export const STRICT_PROFILE = 'vault-strict-v1' as const;
 
 export const MANIFEST_SCHEMA = 'vault-signature/v1' as const;
 
+export const PDF_TEXT_PROFILE = 'vault-pdf-text-v1' as const;
+
 export const CERTIFICATE_PURPOSE = 'document-signing' as const;
 
 export const CERTIFICATE_SCHEMA = 'vault-key-certificate/v1' as const;
+
+export const TEXT_NORMALIZATION_VERSION = 'vault-text-normalization-v1' as const;

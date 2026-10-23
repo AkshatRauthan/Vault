@@ -1,6 +1,7 @@
 export * from './manifest';
 export * from './proof.chain';
 export * from './verify-candidate';
+export * from './document-handler';
 
 export {
     CERTIFICATE_PURPOSE,
@@ -9,6 +10,8 @@ export {
     MERKLE_SPEC,
     SIGNING_ALGORITHM,
     STRICT_PROFILE,
+    TEXT_NORMALIZATION_VERSION,
+    PDF_TEXT_PROFILE,
 } from './sign.constants';
 
 export type {
@@ -22,18 +25,18 @@ export type {
     IProof,
 } from './sign.types';
 
-export type { 
-    ICertificateInput 
+export type {
+    ICertificateInput
 } from './certificate';
 
-export { 
-    buildCertificatePayload, 
-    issueCertificate 
+export {
+    buildCertificatePayload,
+    issueCertificate
 } from './certificate';
 
-export type { 
-    IProviderKey, 
-    IKeyProvider, 
-    IPlatformKeyRef, 
-    IProviderKeyVersion 
+export type {
+    IProviderKey,
+    IKeyProvider,
+    IPlatformKeyRef,
+    IProviderKeyVersion
 } from './key-provider';
