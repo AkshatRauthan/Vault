@@ -26,7 +26,7 @@ app.use(cookieParser(ServerConfig.SESSION_COOKIE_SECRET));
 app.use(sessionLoader);
 app.use(csrfProtection);
 
-app.use(appRoutes);
+app.use("/api", appRoutes);
 
 app.use((req: Request, _res: Response, next: NextFunction) => {
     next(new CustomError(
