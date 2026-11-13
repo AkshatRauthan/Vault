@@ -1,110 +1,45 @@
 import { Router } from 'express';
-import { rateLimit } from 'express-rate-limit';
-
-import { validate } from '@shared';
-import { requireFreshAuth, requireSession } from '@vault/modules/session';
 
 import { DocumentController } from './document.controller';
-import { documentIdParamsSchema, documentVersionParamsSchema, listDocumentsQuerySchema, signDocumentBodySchema } from './document.schema';
-import { requireRawPdfBody } from './document.middleware';
+import { requireFreshAuth, requireSession } from '@vault/modules/session';
 
 export const documentRouter: Router = Router();
 
-// Applies to successful and middleware-generated error responses, including rate-limit and validation errors.
-documentRouter.use((_req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store');
-    next();
-});
-
-const uploadLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 10,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-});
-
-const signLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 10,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-});
-
-const readLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 120,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-});
-
-const downloadLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 30,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-});
-
-const verifyLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 20,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-});
+// Authenticated: uploading and signing is a sensitive action (step-up required).
+documentRouter.post(
+    '/',
+    requireSession,
+    requireFreshAuth(),
+    DocumentController.uploadMiddleware,
+    DocumentController.upload,
+);
 
 documentRouter.get(
     '/',
     requireSession,
-    readLimiter,
-    validate({ query: listDocumentsQuerySchema }),
-    DocumentController.list,
+    DocumentController.listMine
 );
 
 documentRouter.get(
-    '/:documentId',
+    '/:documentId/versions',
     requireSession,
-    readLimiter,
-    validate({ params: documentIdParamsSchema }),
-    DocumentController.details,
+    DocumentController.listVersions
 );
 
 documentRouter.get(
     '/:documentId/versions/:versionId/download',
     requireSession,
-    downloadLimiter,
-    validate({ params: documentVersionParamsSchema }),
-    DocumentController.download,
+    DocumentController.download
 );
 
+// Public: a proof must be inspectable and verifiable by anyone holding it, without a Vault account.
 documentRouter.get(
     '/:documentId/versions/:versionId/proof',
-    requireSession,
-    readLimiter,
-    validate({ params: documentVersionParamsSchema }),
-    DocumentController.proof,
-);
-
-documentRouter.post(
-    '/',
-    requireSession,
-    uploadLimiter,
-    requireRawPdfBody,
-    DocumentController.upload,
-);
-
-documentRouter.post(
-    '/:documentId/versions/:versionId/sign',
-    requireSession,
-    signLimiter,
-    requireFreshAuth(),
-    validate({ params: documentVersionParamsSchema, body: signDocumentBodySchema }),
-    DocumentController.sign,
+    DocumentController.getProof
 );
 
 documentRouter.post(
     '/:documentId/versions/:versionId/verify',
-    requireSession,
-    verifyLimiter,
-    validate({ params: documentVersionParamsSchema }),
-    requireRawPdfBody,
+    DocumentController.verifyMiddleware,
     DocumentController.verify,
 );

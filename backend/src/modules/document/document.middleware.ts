@@ -1,8 +1,8 @@
 import express, { RequestHandler } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
-import { PreflightConfig } from '@vault/config';
 import { CustomError } from '@shared';
+import { PreflightConfig } from '@vault/config';
 
 const parsePdfBody = express.raw({
     type: 'application/pdf',

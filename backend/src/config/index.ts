@@ -4,6 +4,7 @@ export * from './storage.config';
 export * from './openbao.config';
 export * from './signing.config';
 export * from './preflight.config';
+export * from './platform-trust.config';
 
 export { default as DbConfig } from './db.config';
 export { default as CorsConfig } from './cors.config';

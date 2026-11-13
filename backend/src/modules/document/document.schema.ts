@@ -1,31 +1,20 @@
 import { z } from 'zod';
-import { PDF_TEXT_PROFILE, STRICT_PROFILE } from '@core/sign';
 
-const uuidLike = z.string().regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    'must be a UUID identifier',
-);
-
-export const documentIdParamsSchema = z.object({
-    documentId: uuidLike,
+export const uploadBodySchema = z.object({
+    /** Omit to create a new document; provide to upload a new version of an existing one. */
+    documentId: z.string().uuid('Invalid document id').optional(),
+    /** Required only when creating a new document. */
+    displayName: z.string().trim().min(1, 'Name is required').max(200, 'Name is too long').optional(),
 });
 
-export const documentVersionParamsSchema = z.object({
-    documentId: uuidLike,
-    versionId: uuidLike,
+export const documentParamsSchema = z.object({
+    documentId: z.string().uuid('Invalid document id'),
 });
 
-export const listDocumentsQuerySchema = z.object({
-    page: z.coerce.number().int().min(1).max(100000).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+export const versionParamsSchema = documentParamsSchema.extend({
+    versionId: z.string().uuid('Invalid version id'),
+});
 
-export const signDocumentBodySchema = z.object({
-    /** Explicit by design: the server never silently downgrades a text-profile request. */
-    profile: z.enum([STRICT_PROFILE, PDF_TEXT_PROFILE]),
-}).strict();
-
-export type SignDocumentBody = z.infer<typeof signDocumentBodySchema>;
-export type DocumentVersionParams = z.infer<typeof documentVersionParamsSchema>;
-export type DocumentIdParams = z.infer<typeof documentIdParamsSchema>;
-export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
+export type UploadBody = z.infer<typeof uploadBodySchema>;
+export type DocumentParams = z.infer<typeof documentParamsSchema>;
+export type VersionParams = z.infer<typeof versionParamsSchema>;

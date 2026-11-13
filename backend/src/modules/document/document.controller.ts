@@ -1,95 +1,142 @@
-import { Request, RequestHandler } from 'express';
+import multer from 'multer';
+import { Request, RequestHandler, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
-import { CustomError, getClientContext, handle } from '@shared';
+import { ZodError, ZodType } from 'zod';
+
+import { CustomError } from '@shared';
+import { PreflightConfig } from '@vault/config';
+
+import { ProofRepository } from '@vault/modules/proof';
+import { downloadDocument } from '@vault/infra/storage';
 import { ISessionContext } from '@vault/modules/session';
 
-import { DocumentService } from './document.service';
-import type { DocumentIdParams, DocumentVersionParams, ListDocumentsQuery, SignDocumentBody } from './document.schema';
+import { DocumentRepository } from './document.repository';
+import { DocumentService, DocumentVerifyService } from './document.instance';
+import {
+    documentParamsSchema,
+    uploadBodySchema,
+    versionParamsSchema,
+    type DocumentParams,
+    type UploadBody,
+    type VersionParams,
+} from './document.schema';
 
-const currentSession = (req: Request): ISessionContext => req.session as ISessionContext;
+type AsyncHandler = (req: Request, res: Response) => Promise<void>;
 
-const pdfBody = (req: Request): Buffer => {
-    if (!Buffer.isBuffer(req.body)) {
-        throw new CustomError('Invalid PDF request body', StatusCodes.BAD_REQUEST);
+// Express 4 doesn't catch rejected promises, so forward them to the error handler.
+const handle =
+    (fn: AsyncHandler): RequestHandler =>
+        (req, res, next) => {
+            fn(req, res).catch(next);
+        };
+
+/** Routes using this sit behind requireSession, so req.session is always set. */
+const session = (req: Request): ISessionContext => req.session as ISessionContext;
+
+/**
+ * The route-level `validate` middleware runs before multer, so req.body is still empty for multipart
+ * requests at that point. Multipart fields and params/queries are therefore validated here instead,
+ * after multer has populated req.body and req.file.
+ */
+const parse = <T>(schema: ZodType<T>, value: unknown): T => {
+    try {
+        return schema.parse(value);
+    } catch (error) {
+        if (error instanceof ZodError) {
+            const message = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+            throw new CustomError(message, StatusCodes.BAD_REQUEST);
+        }
+        throw error;
     }
-    return req.body;
 };
 
-const signingContext = (req: Request) => {
-    const session = currentSession(req);
-    return {
-        userId: session.data.userId,
-        sessionId: session.id,
-        ...getClientContext(req),
-    };
-};
+const fileUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: PreflightConfig.maxFileSizeBytes },
+}).single('file');
 
-export const DocumentController: Record<string, RequestHandler> = {
-    list: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const session = currentSession(req);
-        const { page, limit } = req.query as unknown as ListDocumentsQuery;
-        const result = await DocumentService.list(session.data.userId, page, limit);
-        res.status(StatusCodes.OK).json(result);
+export const DocumentController = {
+    /** Parses the multipart body before DocumentController.upload runs. */
+    uploadMiddleware: fileUpload as RequestHandler,
+
+    upload: handle(async (req, res) => {
+        if (!req.file) throw new CustomError('A file is required', StatusCodes.BAD_REQUEST);
+        const body = parse(uploadBodySchema, req.body) as UploadBody;
+        const s = session(req);
+
+        const result = await DocumentService.upload({
+            ownerId: s.data.userId,
+            sessionId: s.id,
+            ip: req.ip ?? 'unknown',
+            userAgent: req.get('user-agent') ?? '',
+            fileBuffer: req.file.buffer,
+            ...(body.displayName ? { displayName: body.displayName } : {}),
+            ...(body.documentId ? { documentId: body.documentId } : {}),
+        });
+
+        // A rejection is not a server error: the request was well-formed, the document just can't be
+        // signed. 422 (not 400) reflects that, and the body always states the reason explicitly.
+        res.status(result.accepted ? StatusCodes.CREATED : StatusCodes.UNPROCESSABLE_ENTITY).json(result);
     }),
 
-    details: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const session = currentSession(req);
-        const { documentId } = req.params as unknown as DocumentIdParams;
-        const result = await DocumentService.details(session.data.userId, documentId);
-        res.status(StatusCodes.OK).json(result);
+    listMine: handle(async (req, res) => {
+        const documents = await DocumentRepository.listDocumentsByOwner(session(req).data.userId);
+        res.status(StatusCodes.OK).json({ documents });
+    }),
+
+    listVersions: handle(async (req, res) => {
+        const { documentId } = parse(documentParamsSchema, req.params) as DocumentParams;
+        const document = await DocumentRepository.findDocumentById(documentId);
+        if (!document || document.ownerId !== session(req).data.userId) {
+            throw new CustomError('Document not found', StatusCodes.NOT_FOUND);
+        }
+        const versions = await DocumentRepository.listVersionsByDocument(documentId);
+        res.status(StatusCodes.OK).json({ versions });
+    }),
+
+    /**
+     * Public: anyone holding this URL can retrieve the proof. The proof carries its own key certificate
+     * and is self-verifying against the publicly pinned platform key (see /verify) — it needs no
+     * session and no trust in this server beyond "this is the manifest and signature that were stored".
+     */
+    getProof: handle(async (req, res) => {
+        const { documentId, versionId } = parse(versionParamsSchema, req.params) as VersionParams;
+        const version = await DocumentRepository.findVersionById(documentId, versionId);
+        if (!version) throw new CustomError('Document version not found', StatusCodes.NOT_FOUND);
+
+        const proof = await ProofRepository.findProofByVersion(versionId);
+        if (!proof) throw new CustomError('Proof not found for this version', StatusCodes.NOT_FOUND);
+
+        res.status(StatusCodes.OK).json({
+            manifest: proof.manifest,
+            signature: proof.signature,
+            certificate: proof.certificate,
+        });
     }),
 
     download: handle(async (req, res) => {
-        res.set('Cache-Control', 'private, no-store');
-        res.set('X-Content-Type-Options', 'nosniff');
-        const session = currentSession(req);
-        const { documentId, versionId } = req.params as unknown as DocumentVersionParams;
-        const result = await DocumentService.download(session.data.userId, documentId, versionId);
-        const filename = /\.pdf$/i.test(result.name) ? result.name : `${result.name}.pdf`;
-        const asciiFilename = filename.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+$/, 'document.pdf') || 'document.pdf';
-        const utf8Filename = encodeURIComponent(filename).replace(/['()*]/g, (character) =>
-            `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-        );
-        res.setHeader('Content-Type', result.mediaType);
-        res.setHeader('Content-Length', String(result.bytes.length));
-        res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`);
-        res.status(StatusCodes.OK).send(result.bytes);
+        const { documentId, versionId } = parse(versionParamsSchema, req.params) as VersionParams;
+        const version = await DocumentRepository.findVersionById(documentId, versionId);
+        if (!version || version.ownerId !== session(req).data.userId) {
+            throw new CustomError('Document version not found', StatusCodes.NOT_FOUND);
+        }
+        if (!version.storageAvailable || !version.storagePath) {
+            throw new CustomError('The original file is no longer available for download', StatusCodes.GONE);
+        }
+
+        const bytes = await downloadDocument(version.storagePath, version.sha256);
+        res.set('Content-Type', version.mediaType);
+        res.set('Content-Disposition', `attachment; filename="${documentId}-v${version.versionNumber}.pdf"`);
+        res.status(StatusCodes.OK).send(bytes);
     }),
 
-    proof: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const session = currentSession(req);
-        const { documentId, versionId } = req.params as unknown as DocumentVersionParams;
-        const result = await DocumentService.getProof(session.data.userId, documentId, versionId);
-        res.status(StatusCodes.OK).json(result);
-    }),
-
-    upload: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const session = currentSession(req);
-        const result = await DocumentService.upload(
-            session.data.userId,
-            pdfBody(req),
-            req.get('x-document-name'),
-        );
-        res.status(StatusCodes.CREATED).json(result);
-    }),
-
-    sign: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const { documentId, versionId } = req.params as unknown as DocumentVersionParams;
-        const { profile } = req.body as SignDocumentBody;
-        const result = await DocumentService.sign(signingContext(req), documentId, versionId, profile);
-        res.status(StatusCodes.OK).json(result);
-    }),
-
+    /** Public: verification must work for anyone holding a copy of the document, not just its owner. */
     verify: handle(async (req, res) => {
-        res.set('Cache-Control', 'no-store');
-        const session = currentSession(req);
-        const { documentId, versionId } = req.params as unknown as DocumentVersionParams;
-        const result = await DocumentService.verify(session.data.userId, documentId, versionId, pdfBody(req));
+        if (!req.file) throw new CustomError('A file is required', StatusCodes.BAD_REQUEST);
+        const { documentId, versionId } = parse(versionParamsSchema, req.params) as VersionParams;
+        const result = await DocumentVerifyService.verify(documentId, versionId, req.file.buffer);
         res.status(StatusCodes.OK).json(result);
     }),
+
+    verifyMiddleware: fileUpload as RequestHandler,
 };
